@@ -6,7 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 from skimage import transform
 from sklearn.preprocessing import normalize
-from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import roc_curve, auc, precision_recall_curve
 
 
 class Mxnet_model_interf:
@@ -809,6 +809,198 @@ def plot_roc_and_calculate_tpr(scores, names=None, label=None):
 
     return tpr_result_df, fig
 
+def plot_precision_recall(scores, names=None, label=None):
+    print(">>>> plot precision recall curve...")
+    score_dict = {}
+    for id, score in enumerate(scores):
+        name = None if names is None else names[id]
+        if isinstance(score, str) and score.endswith(".npz"):
+            aa = np.load(score)
+            score = aa.get("scores", [])
+            label = aa["label"] if label is None and "label" in aa else label
+            score_name = aa.get("names", [])
+            for ss, nn in zip(score, score_name):
+                score_dict[nn] = ss
+        elif isinstance(score, str) and score.endswith(".npy"):
+            name = (
+                name
+                if name is not None
+                else os.path.splitext(os.path.basename(score))[0]
+            )
+            score_dict[name] = np.load(score)
+        elif isinstance(score, str) and score.endswith(".txt"):
+            label = pd.read_csv(score, sep=" ", header=None).values[:, 2]
+        else:
+            name = name if name is not None else str(id)
+            score_dict[name] = score
+    if label is None:
+        print("Error: Label data is not provided")
+        return None, None
+
+    precision_dict, recall_dict, pr_auc_dict = {}, {}, {}
+    for name, score in score_dict.items():
+        precision, recall, _ = precision_recall_curve(label, score)
+        pr_auc = auc(recall, precision)
+        precision_dict[name] = precision
+        recall_dict[name] = recall
+        pr_auc_dict[name] = pr_auc
+
+    try:
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        for name in score_dict:
+            plt.plot(
+                recall_dict[name],
+                precision_dict[name],
+                lw=1,
+                label="[%s (AUC = %0.4f%%)]" % (name, pr_auc_dict[name] * 100)
+            )
+            # Find the balance point where precision equals recall
+            balance_idx = np.argmin(np.abs(precision_dict[name] - recall_dict[name]))
+            balance_point = (recall_dict[name][balance_idx], precision_dict[name][balance_idx])
+            plt.plot(balance_point[0], balance_point[1], 'ro')  # Plot balance point in red
+            plt.annotate(f'Balance Point\nRecall: {balance_point[0]:.2f}, Precision: {balance_point[1]:.2f}',
+                         (balance_point[0], balance_point[1]), textcoords="offset points", xytext=(0,10), ha='center')
+
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.title("Precision-Recall Curve with Balance Point")
+        plt.legend(loc="best")
+        plt.grid(linestyle="--", linewidth=1)
+        plt.tight_layout()
+        plt.savefig("pr_curve.png", dpi=300)
+        plt.close()
+    except:
+        print("matplotlib plot failed")
+        fig = None
+
+    return fig
+
+def plot_tpr_fpr_vs_threshold(scores, names=None, label=None):
+    print(">>>> plot tpr and fpr against threshold...")
+    score_dict = {}
+    for id, score in enumerate(scores):
+        name = None if names is None else names[id]
+        if isinstance(score, str) and score.endswith(".npz"):
+            aa = np.load(score)
+            score = aa.get("scores", [])
+            label = aa["label"] if label is None and "label" in aa else label
+            score_name = aa.get("names", [])
+            for ss, nn in zip(score, score_name):
+                score_dict[nn] = ss
+        elif isinstance(score, str) and score.endswith(".npy"):
+            name = (
+                name
+                if name is not None
+                else os.path.splitext(os.path.basename(score))[0]
+            )
+            score_dict[name] = np.load(score)
+        elif isinstance(score, str) and score.endswith(".txt"):
+            # IJB meta data like ijbb_template_pair_label.txt
+            label = pd.read_csv(score, sep=" ", header=None).values[:, 2]
+        else:
+            name = name if name is not None else str(id)
+            score_dict[name] = score
+    if label is None:
+        print("Error: Label data is not provided")
+        return None, None
+
+    # Calculate FPR and TPR for different thresholds
+    thresholds, fpr_dict, tpr_dict = {}, {}, {}
+    for name, score in score_dict.items():
+        fpr, tpr, thresholds = roc_curve(label, score)
+        fpr_dict[name] = fpr
+        tpr_dict[name] = tpr
+
+    # Plot TPR and FPR against thresholds
+    try:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for name in score_dict:
+            ax.plot(thresholds, tpr_dict[name], lw=1, label=f'{name} TPR')
+            ax.plot(thresholds, fpr_dict[name], lw=1, label=f'{name} FPR')
+        
+        ax.set_title('TPR and FPR vs Threshold')
+        ax.set_xlabel('Threshold')
+        ax.set_ylabel('Rate')
+        ax.legend(loc="best")
+
+        plt.tight_layout()
+        plt.savefig("tpr_fpr_vs_threshold.png", dpi=300)
+        plt.close()
+    except:
+        print("matplotlib plot failed")
+        fig = None
+
+    return fig
+
+def plot_f1_vs_threshold(scores, names=None, label=None):
+    print(">>>> plot F1 against threshold...")
+    score_dict = {}
+    for id, score in enumerate(scores):
+        name = None if names is None else names[id]
+        if isinstance(score, str) and score.endswith(".npz"):
+            aa = np.load(score)
+            score = aa.get("scores", [])
+            label = aa["label"] if label is None and "label" in aa else label
+            score_name = aa.get("names", [])
+            for ss, nn in zip(score, score_name):
+                score_dict[nn] = ss
+        elif isinstance(score, str) and score.endswith(".npy"):
+            name = (
+                name
+                if name is not None
+                else os.path.splitext(os.path.basename(score))[0]
+            )
+            score_dict[name] = np.load(score)
+        elif isinstance(score, str) and score.endswith(".txt"):
+            label = pd.read_csv(score, sep=" ", header=None).values[:, 2]
+        else:
+            name = name if name is not None else str(id)
+            score_dict[name] = score
+    if label is None:
+        print("Error: Label data is not provided")
+        return None
+
+    f1_dict = {}
+    for name, score in score_dict.items():
+        precision, recall, thresholds = precision_recall_curve(label, score)
+        if len(precision) != len(thresholds):
+            precision = precision[:-1]
+            recall = recall[:-1]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            f1 = np.where((precision + recall) > 0, 2 * (precision * recall) / (precision + recall), 0)
+        f1_dict[name] = f1
+
+    try:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for name in score_dict:
+            f1_scores = f1_dict[name]
+            max_f1_index = np.argmax(f1_scores)  # 找到F1分数最大值的索引
+            max_f1_threshold = thresholds[max_f1_index]  # 对应的阈值
+            max_f1_score = f1_scores[max_f1_index]  # 最大F1分数
+            ax.plot(thresholds, f1_scores, lw=1, label=name)
+            ax.plot(max_f1_threshold, max_f1_score, 'ro')  # 标记F1最大值点
+            ax.annotate(f'Max F1: {max_f1_score:.2f} at Thresh: {max_f1_threshold:.2f}',
+                         (max_f1_threshold, max_f1_score), textcoords="offset points", xytext=(0,10), ha='center')
+        
+        ax.set_title('F1 Score vs Threshold')
+        ax.set_xlabel('Threshold')
+        ax.set_ylabel('F1 Score')
+        ax.legend(loc="best")
+
+        plt.tight_layout()
+        plt.savefig("f1_vs_threshold.png", dpi=300)
+        plt.close()
+    except Exception as e:
+        print("matplotlib plot failed:", e)
+        fig = None
+
+    return fig
+
 
 def plot_dir_far_cmc_scores(scores, names=None):
     try:
@@ -1011,3 +1203,6 @@ if __name__ == "__main__":
             plot_dir_far_cmc_scores(scores=scores, names=names)
         else:
             plot_roc_and_calculate_tpr(scores, names=names, label=label)
+            plot_precision_recall(scores, names=names, label=label)
+            plot_tpr_fpr_vs_threshold(scores, names=names, label=label)
+            plot_f1_vs_threshold(scores, names=names, label=label)

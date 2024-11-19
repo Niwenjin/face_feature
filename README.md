@@ -15,7 +15,11 @@ $Recall/TPR = \frac{TP}{TP + FN}$
 
 $FPR = \frac{FP}{FP + TN}$
 
-ROC 曲线：以 FPR 为 x 轴，TPR 为 y 轴，展示了在不同阈值下分类器的性能。ROC 曲线下的面积（AUC）是衡量模型整体性能的一个指标，AUC 值越高，表示模型的分类性能越好。
+ROC 曲线：以 FPR 为 x 轴，TPR 为 y 轴。ROC 曲线下的面积（AUC）是衡量模型整体性能的一个指标，AUC 值越高，表示模型的分类性能越好。
+
+PR 曲线：以 Recall 为 x 轴，Precision 为 y 轴。通常通过平衡点（BEP）判断模型的性能，即 P=R 时的取值，如果这个值较大，说明模型的性能较好。PR 曲线下的面积（AUC）也可以作为判断模型性能的指标。
+
+F1 曲线：F1 分数是精确率和召回率的调和平均数，计算公式为 $F1=2×\frac{Precision×Recall}{Precision+Recall}$ 。以阈值为 x 轴，F1 分数为 y 轴，体现了模型在不同阈值下的综合性能。
 
 ## 在 IJB 数据集上评估模型
 
