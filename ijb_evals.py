@@ -94,14 +94,14 @@ class Caffe_model_interf:
     def __call__(self, imgs):
         imgs = imgs.transpose(0, 3, 1, 2).astype("float32")
         imgs = (imgs - 127.5) * 0.0078125
-        outputs = []
-        for img in imgs:
+        outputs = np.zeros((len(imgs), 128))
+        for i, img in enumerate(imgs):
             self.net.blobs["data"].reshape(1, *img.shape)
             self.net.blobs["data"].data[...] = img
             self.net.forward()
 
             output_name = list(self.net.blobs.keys())[-1]
-            outputs.append(self.net.blobs[output_name].data[0])
+            outputs[i] = self.net.blobs[output_name].data[0].flatten()
 
         return outputs
 
@@ -925,6 +925,8 @@ def plot_tpr_fpr_vs_threshold(scores, names=None, label=None):
         ax.set_title('TPR and FPR vs Threshold')
         ax.set_xlabel('Threshold')
         ax.set_ylabel('Rate')
+        # ax.set_xlim([0.0, 1.0])
+        # ax.set_ylim([0.0, 1.0])
         ax.legend(loc="best")
 
         plt.tight_layout()
@@ -1204,5 +1206,5 @@ if __name__ == "__main__":
         else:
             plot_roc_and_calculate_tpr(scores, names=names, label=label)
             plot_precision_recall(scores, names=names, label=label)
-            plot_tpr_fpr_vs_threshold(scores, names=names, label=label)
+            # plot_tpr_fpr_vs_threshold(scores, names=names, label=label)
             plot_f1_vs_threshold(scores, names=names, label=label)
