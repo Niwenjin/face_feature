@@ -43,13 +43,13 @@ IJB（IARPA Janus Benchmark）数据集是一个由美国国家标准化研究�
 
 测试分为两阶段进行，如果绘制曲线过程中出错，可以读取保存的 embedding 文件继续进行测试：
 
-1. 在板端执行模型推理，将图像提取得到的 embedding 存储为 npz 格式。
+1. 在模型对应的推理环境下执行推理，将图像提取得到的 embedding 存储为 npz 格式。
 
     ```sh
-    python ijb_evals.py -m b3/model/feature_opencv_net_rk3588.rknn -d IJB_release -s IJBB -b 128 -E
+    python ijb_evals.py -m b3/model/feature_opencv_net_rk3588.rknn -d IJB_release -s IJBB -E
     ```
 
-2. 在服务器端读取 npz 向量文件，执行评估代码，绘制 ROC 曲线。
+2. 读取 npz 向量文件，执行评估代码，计算各种指标，绘制曲线。
 
     ```sh
     python ijb_evals.py -R IJB_result/feature_opencv_net_rk3588_IJBB_11.npz -d IJB_release -s IJBB

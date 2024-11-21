@@ -92,6 +92,9 @@ class Caffe_model_interf:
         self.image_size = image_size
 
     def __call__(self, imgs):
+        if len(imgs.shape)==3:
+            imgs=np.expand_dims(imgs, 0)
+
         imgs = imgs.transpose(0, 3, 1, 2).astype("float32")
         imgs = (imgs - 127.5) * 0.0078125
         outputs = np.zeros((len(imgs), 128))
@@ -132,9 +135,12 @@ class RKNN_model_interf:
 
     def __call__(self, imgs):
         # batch inference
-        outputs = np.zeros((len(imgs), 128))
+        if len(imgs.shape)==3:
+            imgs=np.expand_dims(imgs, 0)
+
         # imgs = imgs.transpose(0, 3, 1, 2).astype("float32")  # (batch_size, 3, 112, 96)
         # imgs = (imgs - 127.5) * 0.0078125
+        outputs = np.zeros((len(imgs), 128))
         for i, img in enumerate(imgs):
             # img = cv2.resize(img, self.image_size)
             img = np.expand_dims(img, 0)
@@ -143,7 +149,7 @@ class RKNN_model_interf:
         
         return outputs  # (batch_size, 128)
 
-    def release(self):
+    def __del__(self):
         # release rknn model
         self.rknn_lite.release()
 
@@ -449,19 +455,15 @@ def verification_11(
         import cupy as cp
 
         template_norm_feats = cp.array(template_norm_feats)
-        # score_func = lambda feat1, feat2: cp.sum(feat1 * feat2, axis=-1).get()  # 点积
-        score_func = (
-            lambda feat1, feat2: 1 - cp.linalg.norm(feat1 - feat2, axis=-1) / 3.451
-        )  # L2 distance
+        score_func = lambda feat1, feat2: cp.sum(feat1 * feat2, axis=-1).get()  # dot
+        # score_func = lambda feat1, feat2: 1 - cp.linalg.norm(feat1 - feat2, axis=-1) / 3.451  # L2 distance
         test = score_func(
             template_norm_feats[:batch_size], template_norm_feats[:batch_size]
         )
     except:
         print(">>>> Using numpy.")
-        # score_func = lambda feat1, feat2: np.sum(feat1 * feat2, -1)
-        score_func = (
-            lambda feat1, feat2: 1 - np.linalg.norm(feat1 - feat2, axis=-1) / 3.451
-        )  # L2 distance
+        # score_func = lambda feat1, feat2: np.sum(feat1 * feat2, -1)  # dot
+        score_func = lambda feat1, feat2: 1 - np.linalg.norm(feat1 - feat2, axis=-1) / 3.451  # L2 distance
 
     template2id = np.zeros(max(unique_templates) + 1, dtype=int)
     template2id[unique_templates] = np.arange(len(unique_templates))
@@ -731,7 +733,7 @@ class IJB_test:
         return fars_cal, mean_tpirs, g1_cmc_scores, g2_cmc_scores
 
 
-def plot_roc_and_calculate_tpr(scores, names=None, label=None):
+def plot_roc_and_calculate_tpr(scores, names=None, label=None, save_path="./"):
     print(">>>> plot roc and calculate tpr...")
     score_dict = {}
     for id, score in enumerate(scores):
@@ -751,7 +753,6 @@ def plot_roc_and_calculate_tpr(scores, names=None, label=None):
             )
             score_dict[name] = np.load(score)
         elif isinstance(score, str) and score.endswith(".txt"):
-            # IJB meta data like ijbb_template_pair_label.txt
             label = pd.read_csv(score, sep=" ", header=None).values[:, 2]
         else:
             name = name if name is not None else str(id)
@@ -761,22 +762,15 @@ def plot_roc_and_calculate_tpr(scores, names=None, label=None):
         return None, None
 
     x_labels = [10 ** (-ii) for ii in range(1, 7)[::-1]]
-    fpr_dict, tpr_dict, roc_auc_dict, tpr_result = {}, {}, {}, {}
+    fpr_dict, tpr_dict, roc_auc_dict = {}, {}, {}
     for name, score in score_dict.items():
         fpr, tpr, _ = roc_curve(label, score)
         roc_auc = auc(fpr, tpr)
         fpr, tpr = np.flipud(fpr), np.flipud(tpr)  # select largest tpr at same fpr
-        tpr_result[name] = [tpr[np.argmin(abs(fpr - ii))] for ii in x_labels]
         fpr_dict[name], tpr_dict[name], roc_auc_dict[name] = fpr, tpr, roc_auc
-    tpr_result_df = pd.DataFrame(tpr_result, index=x_labels).T
-    tpr_result_df["AUC"] = pd.Series(roc_auc_dict)
-    tpr_result_df.columns.name = "Methods"
-    print(tpr_result_df.to_markdown())
-    # print(tpr_result_df)
 
     try:
         import matplotlib.pyplot as plt
-
         fig = plt.figure()
         for name in score_dict:
             plt.plot(
@@ -785,31 +779,37 @@ def plot_roc_and_calculate_tpr(scores, names=None, label=None):
                 lw=1,
                 label="[%s (AUC = %0.4f%%)]" % (name, roc_auc_dict[name] * 100),
             )
+            # 在每个横坐标点上标出y值
+            for x_label in x_labels:
+                idx = np.argmin(np.abs(fpr_dict[name] - x_label))
+                y_value = tpr_dict[name][idx]
+                plt.text(x_label, y_value, f"{y_value:.4f}", ha='center', va='bottom')
+
         title = (
             "ROC on IJB" + name.split("IJB")[-1][0] if "IJB" in name else "ROC on IJB"
         )
 
         plt.xlim([10**-6, 0.1])
         plt.xscale("log")
-        plt.xticks(x_labels)
+        plt.xticks(x_labels, labels=[f"{label:.0e}" for label in x_labels])
         plt.xlabel("False Positive Rate")
-        plt.ylim([0.3, 1.0])
-        plt.yticks(np.linspace(0.3, 1.0, 8, endpoint=True))
+        plt.ylim([0, 1.0])
+        plt.yticks(np.linspace(0, 1.0, 11, endpoint=True))
         plt.ylabel("True Positive Rate")
 
         plt.grid(linestyle="--", linewidth=1)
         plt.title(title)
         plt.legend(loc="lower right", fontsize="x-small")
         plt.tight_layout()
-        plt.savefig("roc_curve.png", dpi=300)
+        plt.savefig(os.path.join(save_path, 'ROC_curve.png'), dpi=300)
         plt.close()
     except:
         print("matplotlib plot failed")
         fig = None
 
-    return tpr_result_df, fig
+    return fig
 
-def plot_precision_recall(scores, names=None, label=None):
+def plot_precision_recall(scores, names=None, label=None, save_path="./"):
     print(">>>> plot precision recall curve...")
     score_dict = {}
     for id, score in enumerate(scores):
@@ -870,7 +870,7 @@ def plot_precision_recall(scores, names=None, label=None):
         plt.legend(loc="best")
         plt.grid(linestyle="--", linewidth=1)
         plt.tight_layout()
-        plt.savefig("pr_curve.png", dpi=300)
+        plt.savefig(os.path.join(save_path, 'PR_curve.png'), dpi=300)
         plt.close()
     except:
         print("matplotlib plot failed")
@@ -878,7 +878,7 @@ def plot_precision_recall(scores, names=None, label=None):
 
     return fig
 
-def plot_tpr_fpr_vs_threshold(scores, names=None, label=None):
+def plot_tpr_fpr_vs_threshold(scores, names=None, label=None, save_path="./"):
     print(">>>> plot tpr and fpr against threshold...")
     score_dict = {}
     for id, score in enumerate(scores):
@@ -925,12 +925,12 @@ def plot_tpr_fpr_vs_threshold(scores, names=None, label=None):
         ax.set_title('TPR and FPR vs Threshold')
         ax.set_xlabel('Threshold')
         ax.set_ylabel('Rate')
-        # ax.set_xlim([0.0, 1.0])
-        # ax.set_ylim([0.0, 1.0])
+        ax.set_xlim([0.0, 1.0])
+        ax.set_ylim([0.0, 1.05])
         ax.legend(loc="best")
 
         plt.tight_layout()
-        plt.savefig("tpr_fpr_vs_threshold.png", dpi=300)
+        plt.savefig(os.path.join(save_path, 'tpr_fpr_curve.png'), dpi=300)
         plt.close()
     except:
         print("matplotlib plot failed")
@@ -938,7 +938,7 @@ def plot_tpr_fpr_vs_threshold(scores, names=None, label=None):
 
     return fig
 
-def plot_f1_vs_threshold(scores, names=None, label=None):
+def plot_f1_vs_threshold(scores, names=None, label=None, save_path="./"):
     print(">>>> plot F1 against threshold...")
     score_dict = {}
     for id, score in enumerate(scores):
@@ -995,7 +995,7 @@ def plot_f1_vs_threshold(scores, names=None, label=None):
         ax.legend(loc="best")
 
         plt.tight_layout()
-        plt.savefig("f1_vs_threshold.png", dpi=300)
+        plt.savefig(os.path.join(save_path, 'F1_curve.png'), dpi=300)
         plt.close()
     except Exception as e:
         print("matplotlib plot failed:", e)
@@ -1050,7 +1050,7 @@ def parse_arguments(argv):
         "--model_file",
         type=str,
         default=None,
-        help="Saved model, keras h5 / pytorch jit pth / onnx / mxnet / rknn",
+        help="Saved model, keras h5 / pytorch jit pth / onnx / mxnet / rknn / caffe prototxt",
     )
     parser.add_argument(
         "-d",
@@ -1204,7 +1204,10 @@ if __name__ == "__main__":
         if args.is_one_2_N:
             plot_dir_far_cmc_scores(scores=scores, names=names)
         else:
-            plot_roc_and_calculate_tpr(scores, names=names, label=label)
-            plot_precision_recall(scores, names=names, label=label)
-            # plot_tpr_fpr_vs_threshold(scores, names=names, label=label)
-            plot_f1_vs_threshold(scores, names=names, label=label)
+            figure_path = os.path.join("figure", save_name)
+            if not os.path.exists(figure_path):
+                os.makedirs(figure_path)
+            plot_roc_and_calculate_tpr(scores, names=names, label=label, save_path=figure_path)
+            plot_precision_recall(scores, names=names, label=label, save_path=figure_path)
+            plot_tpr_fpr_vs_threshold(scores, names=names, label=label, save_path=figure_path)
+            plot_f1_vs_threshold(scores, names=names, label=label, save_path=figure_path)

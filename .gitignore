@@ -1,7 +1,6 @@
 .vscode
+__pycache__
 b3
 IJB_release
 IJB_result
-face_align_results
-test.py
-*.png
+figure
